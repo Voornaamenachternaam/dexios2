@@ -28,4 +28,4 @@ clap = { version = "4.5.31", features = ["cargo"] }
 anyhow = "1.0.97"
 
 zip = { version = "2.2.3", default-features = false, features = ["zstd"] }
-rpassword = "7.2"
+rpassword = "7.3"
