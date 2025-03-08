@@ -1,0 +1,30 @@
+name: Clippy check
+
+on:
+  pull_request:
+    branches: [ "master" ]
+  merge_group:
+    branches: [ "master" ]
+  schedule:
+    - cron: '43 4 * * *'
+  push:
+    branches: [ "master" ]
+
+permissions:
+  # Require writing security events to upload SARIF file to security tab
+  security-events: write
+  # Read commit contents
+  contents: read
+  actions: read
+
+# Make sure CI fails on all warnings, including Clippy lints
+env:
+  RUSTFLAGS: "-Dwarnings"
+
+jobs:
+  clippy_check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features
