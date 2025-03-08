@@ -15,10 +15,10 @@ name: Codacy Security Scan
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
     # The branches below must be a subset of the branches above
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch: {}  # Allows manual trigger from GitHub Actions UI
   schedule:
     - cron: "14 2 * * *"  # Runs daily at 2 AM UTC
