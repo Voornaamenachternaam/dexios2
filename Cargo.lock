@@ -104,13 +104,13 @@ dependencies = [
 
 [[package]]
 name = "argon2"
-version = "0.4.1"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db4ce4441f99dbd377ca8a8f57b698c44d0d6e712d8329b5040da5a64aa1ce73"
+checksum = "95c2fcf79ad1932ac6269a738109997a83c227c09b75842ae564dc8ede6a861c"
 dependencies = [
  "base64ct",
  "blake2",
- "password-hash 0.4.2",
+ "password-hash",
 ]
 
 [[package]]
@@ -133,7 +133,7 @@ checksum = "1bf9e4f4da24116dc0e3ffef4afbabadb7fba375bf32ccf9a1da81a667bababc"
 dependencies = [
  "crypto-bigint",
  "digest",
- "password-hash 0.5.0",
+ "password-hash",
 ]
 
 [[package]]
@@ -144,9 +144,9 @@ checksum = "3bdca834647821e0b13d9539a8634eb62d3501b6b6c2cec1722786ee6671b851"
 
 [[package]]
 name = "blake2"
-version = "0.10.4"
+version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9cf849ee05b2ee5fba5e36f97ff8ec2533916700fc0758d40d92136a42f3388"
+checksum = "46502ad458c9a52b69d4d4d32775c788b7a1b85e8bc9d482d92250fc0e3f8efe"
 dependencies = [
  "digest",
 ]
@@ -571,17 +571,6 @@ name = "opaque-debug"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
-
-[[package]]
-name = "password-hash"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7676374caaee8a325c9e7a2ae557f216c5563a171d6997b0ef8a65af35147700"
-dependencies = [
- "base64ct",
- "rand_core",
- "subtle",
-]
 
 [[package]]
 name = "password-hash"
