@@ -2,7 +2,7 @@ name: Update Rust Version and Edition
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # Runs weekly
+    - cron: '0 0 * * *'  # Runs daily at midnight
   workflow_dispatch: {}  # Allow manual triggering
 
 jobs:
@@ -14,46 +14,40 @@ jobs:
         uses: actions/checkout@v4.2.2
 
       - name: Set up Rust
-        uses: actions-rs/toolchain@v1.0.6
+        uses: actions-rs/toolchain@v1.0.6  # Ensures updated version
         with:
           toolchain: stable
           override: true
 
       - name: Fetch latest Rust version and determine edition
         run: |
-          # Fetch the latest stable Rust version
+          # Fetch the latest Rust version and assumed latest edition
           latest_version=$(rustc --version | awk '{print $2}')
+          latest_edition="2024"  # Assuming latest Rust edition for now
           echo "latest_version=$latest_version" >> $GITHUB_ENV
-
-          # For now, assume that the latest edition is "2024"
-          latest_edition="2024"
           echo "latest_edition=$latest_edition" >> $GITHUB_ENV
-
-          echo "Fetched latest_version: $latest_version and latest_edition: $latest_edition"
+          echo "Fetched Rust Version: $latest_version and Edition: $latest_edition"
 
       - name: Find and update Cargo.toml files
-        id: update
         run: |
           changes_made=false
-          echo "Latest version: $latest_version"
-          echo "Latest edition: $latest_edition"
+          echo "Latest Rust Version: $latest_version"
+          echo "Latest Rust Edition: $latest_edition"
           
-          # Find all Cargo.toml files in the repo (root and subfolders)
+          # Find and process all Cargo.toml files
           for file in $(find . -name "Cargo.toml"); do
-            echo "Processing $file"
-            
-            # Extract current values from the file
+            echo "Checking $file"
             current_version=$(grep 'rust-version' "$file" | awk -F'"' '{print $2}')
             current_edition=$(grep 'edition' "$file" | awk -F'"' '{print $2}')
             
-            # Update rust-version if the latest version is newer
+            # Update rust-version if newer is available
             if [ "$(printf '%s\n' "$latest_version" "$current_version" | sort -V | tail -n1)" != "$current_version" ]; then
               sed -i "s/rust-version = \".*\"/rust-version = \"$latest_version\"/g" "$file"
               changes_made=true
               echo "Updated rust-version in $file"
             fi
             
-            # Update edition if it differs from the latest edition
+            # Update edition if it differs
             if [ "$latest_edition" != "$current_edition" ]; then
               sed -i "s/edition = \".*\"/edition = \"$latest_edition\"/g" "$file"
               changes_made=true
@@ -61,32 +55,13 @@ jobs:
             fi
           done
           
+          # Commit changes if any files were updated
           if [ "$changes_made" = true ]; then
             git config --global user.name "github-actions"
             git config --global user.email "github-actions@github.com"
-            git checkout -B update-cargo-toml
-            git commit -am "Update Cargo.toml files: rust-version and/or edition"
-            echo "changes_made=true" >> $GITHUB_ENV
+            git add .
+            git commit -m "Update Cargo.toml files: rust-version and/or edition"
+            git push origin HEAD
           else
-            echo "changes_made=false" >> $GITHUB_ENV
-            echo "No updates needed for any Cargo.toml files"
+            echo "No updates were needed."
           fi
-
-      - name: Push changes if any
-        if: env.changes_made == 'true'
-        uses: ad-m/github-push-action@v0.8.0
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: update-cargo-toml
-
-      - name: Create pull request if needed
-        if: env.changes_made == 'true'
-        uses: peter-evans/create-pull-request@v7.0.6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: update-cargo-toml
-          title: Update Cargo.toml files
-          body: |
-            This pull request updates all Cargo.toml files in the repository with the latest:
-            - `rust-version` (if a newer stable version is available)
-            - `edition` (if a newer edition is available)
