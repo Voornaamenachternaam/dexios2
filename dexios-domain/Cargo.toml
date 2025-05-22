@@ -25,4 +25,4 @@ core = { package = "dexios-core", path = "../dexios-core", version = "1.2.0" }
 rand = "0.9.0"
 blake3 = "1.6.1"
 walkdir = "2.5.0"
-zip = { version = "2.3.0", default-features = false, features = ["zstd"] }
+zip = { version = "4.0.0", default-features = false, features = ["zstd"] }
