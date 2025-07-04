@@ -42,4 +42,4 @@ blake3 = { version = "1.6.1", features = ["traits-preview"] }
 # for generating random bytes
 rand = "0.9.0"
 
-indicatif = { version = "0.17.11", optional = true }
+indicatif = { version = "0.18.0", optional = true }
