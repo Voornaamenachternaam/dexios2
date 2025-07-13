@@ -16,3 +16,32 @@ authors = ["Voornaamenachternaam"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# GUI framework
+eframe = { version = "0.31", features = ["persistence"] }
+egui = "0.31"
+
+# Dexios components
+dexios-domain = { path = "../dexios-domain" }
+dexios-core = { path = "../dexios-core" }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# File dialogs
+rfd = "0.14"
+
+# Serialization for settings
+serde = { version = "1.0", features = ["derive"] }
+
+# Secure memory handling
+zeroize = "1.7"
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Progress indicators
+indicatif = "0.17"
+
+# Error handling
+anyhow = "1.0"
