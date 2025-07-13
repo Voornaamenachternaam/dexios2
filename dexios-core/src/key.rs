@@ -209,7 +209,7 @@ pub fn generate_passphrase(total_words: &i32) -> Protected<String> {
     let mut passphrase = String::new();
 
     for i in 0..*total_words {
-        let index = StdRng::from_entropy().gen_range(0..=words.len());
+        let index = StdRng::from_os_rng().random_range(0..words.len());
         let word = words[index];
         passphrase.push_str(word);
         if i < total_words - 1 {
