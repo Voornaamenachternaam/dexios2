@@ -360,6 +360,12 @@ pub fn get_matches() -> clap::ArgMatches {
                         .help("Return a BLAKE3 hash of the encrypted file"),
                 )
                 .arg(
+                    Arg::new("argon")
+                        .long("argon")
+                        .action(ArgAction::SetTrue)
+                        .help("Use argon2id for password hashing"),
+                )
+                .arg(
                     Arg::new("force")
                         .short('f')
                         .long("force")
