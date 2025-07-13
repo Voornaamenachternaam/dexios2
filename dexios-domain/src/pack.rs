@@ -11,7 +11,7 @@ use std::sync::Arc;
 use core::header::{HashingAlgorithm, HeaderType};
 use core::primitives::BLOCK_SIZE;
 use core::protected::Protected;
-use zip::write::FileOptions;
+use zip::write::{FileOptions, ExtendedFileOptions};
 
 use crate::storage::Storage;
 
@@ -69,7 +69,7 @@ where
             .borrow_mut();
         let mut zip_writer = zip::ZipWriter::new(BufWriter::new(&mut *tmp_writer));
 
-        let options = FileOptions::default()
+        let options: FileOptions<'_, ExtendedFileOptions> = FileOptions::default()
             .compression_method(req.compression_method)
             .large_file(true)
             .unix_permissions(0o755);
@@ -79,11 +79,11 @@ where
             let file_path = f.path().to_str().ok_or(Error::ReadData)?;
             if f.is_dir() {
                 zip_writer
-                    .add_directory(file_path, options)
+                    .add_directory(file_path, options.clone())
                     .map_err(|_| Error::AddDirToArchive)?;
             } else {
                 zip_writer
-                    .start_file(file_path, options)
+                    .start_file(file_path, options.clone())
                     .map_err(|_| Error::AddFileToArchive)?;
 
                 let mut reader = f.try_reader().map_err(|_| Error::ReadData)?.borrow_mut();
