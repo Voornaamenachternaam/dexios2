@@ -11,7 +11,7 @@ repository = "https://github.com/Voornaamenachternaam/dexios/tree/master/dexios"
 homepage = "https://github.com/Voornaamenachternaam/dexios"
 documentation = "https://Voornaamenachternaam.github.io/dexios"
 license = "BSD-2-Clause"
-rust-version = "1.88.0"
+rust-version = "1.89.0"
 
 # this is for sites other than crates.io, who may still use it
 [badges]
