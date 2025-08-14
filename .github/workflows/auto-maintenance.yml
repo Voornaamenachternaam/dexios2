@@ -1,4 +1,4 @@
-name: Rust Auto Maintenance
+name: Rust Auto Maintenance (toolchain, deps, edition, fixes)
 
 on:
   schedule:
@@ -19,21 +19,21 @@ env:
 
 jobs:
   update-and-fix:
-    name: Update toolchain, deps, edition; try fixes; open PR(s)
+    name: Update Rust, deps, edition; fix code; open PR
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5.0.0
 
-      - name: Set up Rust (stable)
-        uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
+      - name: Set up Rust stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
           components: clippy, rustfmt
 
       - name: Cache Cargo registry + target
-        uses: actions/cache@v4.2.4
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
@@ -43,23 +43,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Show Rust versions
+      - name: Show Rust version
         run: |
           rustup show
           rustc -Vv
           cargo -V
 
-      - name: Install cargo-edit (for upgrades)
+      - name: Install cargo-edit and toml-cli
         run: |
           cargo install cargo-edit --force
-          cargo upgrade --version
-
-      - name: Install toml-cli and ripgrep
-        run: |
           cargo install toml-cli --force || true
           sudo apt-get update -y && sudo apt-get install -y ripgrep
 
-      - name: Compute crate list
+      - name: Compute workspace crates
         id: crates
         run: |
           set -euo pipefail
@@ -70,24 +66,23 @@ jobs:
           fi
           echo "workspaces=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[].manifest_path' | sed 's#/Cargo.toml##' | sort -u | tr '\n' ' ')" >> $GITHUB_OUTPUT
 
-      - name: Create working branch
+      - name: Create update branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b chore/auto-update-$(date -u +%Y%m%d)
 
-      - name: Update rustup to latest stable (idempotent)
+      - name: Update Rust stable
         run: |
           rustup update stable
           rustup default stable
 
-      - name: Bump edition to 2024 where needed
+      - name: Bump edition to 2024
         id: edition
         run: |
           set -euo pipefail
           changed=0
           for pkg in ${{ steps.crates.outputs.workspaces }}; do
-            tomlq -f "$pkg/Cargo.toml" '.package.edition' >/dev/null 2>&1 || continue
             cur=$(tomlq -f "$pkg/Cargo.toml" -r '.package.edition' || echo "")
             if [ -n "$cur" ] && [ "$cur" != "2024" ]; then
               perl -0777 -pe 's/(^|\n)edition\s*=\s*"[0-9]{4}"/${1}edition = "2024"/' -i "$pkg/Cargo.toml"
@@ -102,17 +97,17 @@ jobs:
           cargo upgrade --workspace --all-features --incompatible || true
           cargo update
 
-      - name: Cargo fix for edition hints
+      - name: Cargo fix for edition
         if: steps.edition.outputs.did_bump == '1'
         run: |
           cargo fix --all-targets --all-features --edition --allow-dirty --allow-staged
 
-      - name: Clippy auto-fixes
+      - name: Clippy fix
         run: |
           cargo clippy --all-targets --all-features -- -D warnings || true
           cargo clippy --fix -Z unstable-options --allow-dirty --allow-staged --all-targets --all-features -- -D warnings || true
 
-      - name: Format
+      - name: Format code
         run: cargo fmt --all
 
       - name: Build
@@ -129,19 +124,20 @@ jobs:
           cargo test --all-features --all-targets | tee test.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
-      - name: Commit changes (edition/deps/fixes)
+      - name: Commit edition/deps/fixes
         id: commit1
         run: |
           set -e
           if ! git diff --quiet; then
             git add -A
-            git commit -m "chore: update Rust (stable), upgrade deps to latest, bump edition to 2024, apply fixes"
+            git commit -m "chore: update Rust, deps, edition, apply fixes"
             echo "did_commit=1" >> $GITHUB_OUTPUT
           else
             echo "did_commit=0" >> $GITHUB_OUTPUT
+          fi
 
       - name: Attempt AI patch pass (optional)
-        if: ${{ steps.test.outputs.exit_code != '0' && secrets.OPENAI_API_KEY != '' }}
+        if: ${{ steps.test.outputs.exit_code != '0' && env.OPENAI_API_KEY != '' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -153,6 +149,7 @@ jobs:
           import json
           import re
           import sys
+          import pathlib
 
           API = os.environ.get("OPENAI_API_KEY", "")
           if not API:
@@ -163,10 +160,10 @@ jobs:
               return p.returncode, p.stdout
 
           logs = []
-          for f in ["build.log", "test.log"]:
+          for f in ["build.log","test.log"]:
               if os.path.exists(f):
-                  with open(f, "r", errors="ignore") as fh:
-                      logs.append(f"==== {f} ====\n" + fh.read()[-8000:])
+                  with open(f,"r", errors="ignore") as fh:
+                      logs.append(f"==== {f} ====\n"+fh.read()[-8000:])
           context = "\n\n".join(logs)
 
           prompt = f"""
@@ -179,17 +176,16 @@ jobs:
           """
 
           import urllib.request
-          req = urllib.request.Request(
-              "https://api.openai.com/v1/responses",
-              headers={"Authorization": f"Bearer {API}", "Content-Type":"application/json"},
-              data=json.dumps({
-                  "model": "gpt-5-mini",
-                  "input": [{"role": "user","content": prompt}],
-                  "max_output_tokens": 3000
-              }).encode("utf-8")
-          )
-
           try:
+              req = urllib.request.Request(
+                  "https://api.openai.com/v1/responses",
+                  headers={"Authorization": f"Bearer {API}", "Content-Type":"application/json"},
+                  data=json.dumps({
+                      "model":"o3-mini",
+                      "input":[{"role":"user","content":prompt}],
+                      "max_output_tokens": 3000,
+                  }).encode("utf-8")
+              )
               with urllib.request.urlopen(req, timeout=120) as r:
                   data = json.loads(r.read().decode("utf-8"))
                   out = data.get("output_text", "")
@@ -201,11 +197,13 @@ jobs:
           if not diff:
               m = re.search(r"```diff\s*(.*?)```", out, re.S)
               if m: diff = m.group(1)
-          if not diff: sys.exit(0)
+          if not diff:
+              sys.exit(0)
 
           patch_file = ".github/ai.patch"
           with open(patch_file, "w") as fh: fh.write(diff)
-          rc, out = run(["git","apply","--index","--reject",patch_file])
+
+          rc, out = run(["git", "apply", "--index", "--reject", patch_file])
           print(out)
           sys.exit(0)
           PY
@@ -221,17 +219,17 @@ jobs:
           else
             echo "did_commit=0" >> $GITHUB_OUTPUT
 
-      - name: Re-build & test after AI pass
+      - name: Rebuild & test after AI pass
         if: steps.commit_ai.outputs.did_commit == '1'
         id: test2
         continue-on-error: true
         run: |
           cargo build --all-features | tee build2.log
-          cargo test --all-features --all-targets | tee test2.log
+          cargo test  --all-features --all-targets | tee test2.log
 
       - name: Create PR for updates/fixes
         if: steps.commit1.outputs.did_commit == '1' || steps.commit_ai.outputs.did_commit == '1'
-        uses: peter-evans/create-pull-request@v7.0.8
+        uses: peter-evans/create-pull-request@v7
         with:
           title: "chore: Rust/toolchain, deps & edition auto-updates (with fixes)"
           body: |
@@ -243,7 +241,4 @@ jobs:
             - (Optional) Includes AI-assisted minimal patches if tests initially failed
           branch: ${{ github.ref_name }}
           commit-message: "chore: auto-update Rust/toolchain, deps, edition, and fixes"
-          signoff: false
-          delete-branch: false
-          draft: false
           token: ${{ secrets.GITHUB_TOKEN }}
