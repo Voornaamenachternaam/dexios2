@@ -1,4 +1,4 @@
-name: Rust Auto Maintenance (toolchain, deps, edition, fixes)
+name: Rust Auto Maintenance
 
 on:
   schedule:
@@ -26,7 +26,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5.0.0
 
-      # Install the latest stable Rust each run (with caching & problem matchers)
       - name: Set up Rust (stable)
         uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
         with:
@@ -50,17 +49,16 @@ jobs:
           rustc -Vv
           cargo -V
 
-      # --- Install helpers (latest available) ---
       - name: Install cargo-edit (for upgrades)
         run: |
           cargo install cargo-edit --force
           cargo upgrade --version
-      - name: Install toml-cli (for TOML queries) and ripgrep
+
+      - name: Install toml-cli and ripgrep
         run: |
           cargo install toml-cli --force || true
           sudo apt-get update -y && sudo apt-get install -y ripgrep
 
-      # --- Detect workspace and root package list ---
       - name: Compute crate list
         id: crates
         run: |
@@ -72,20 +70,17 @@ jobs:
           fi
           echo "workspaces=$(cargo metadata --no-deps --format-version=1 | jq -r '.packages[].manifest_path' | sed 's#/Cargo.toml##' | sort -u | tr '\n' ' ')" >> $GITHUB_OUTPUT
 
-      # --- Branch 1: Toolchain + Edition + Deps upgrade branch ---
       - name: Create working branch
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b chore/auto-update-$(date -u +%Y%m%d)
 
-      # Ensure we’re on the newest stable toolchain each run
       - name: Update rustup to latest stable (idempotent)
         run: |
           rustup update stable
           rustup default stable
 
-      # --- Edition bump (to 2024 if older) ---
       - name: Bump edition to 2024 where needed
         id: edition
         run: |
@@ -95,7 +90,6 @@ jobs:
             tomlq -f "$pkg/Cargo.toml" '.package.edition' >/dev/null 2>&1 || continue
             cur=$(tomlq -f "$pkg/Cargo.toml" -r '.package.edition' || echo "")
             if [ -n "$cur" ] && [ "$cur" != "2024" ]; then
-              # Replace edition string
               perl -0777 -pe 's/(^|\n)edition\s*=\s*"[0-9]{4}"/${1}edition = "2024"/' -i "$pkg/Cargo.toml"
               echo "Updated edition in $pkg (was $cur)"
               changed=1
@@ -103,15 +97,11 @@ jobs:
           done
           echo "did_bump=$changed" >> $GITHUB_OUTPUT
 
-      # --- Dependency upgrades (to ABSOLUTE latest, including majors) ---
-      - name: Upgrade dependencies to latest (including incompatible)
+      - name: Upgrade dependencies to latest
         run: |
-          # Workspace-wide upgrade across breaking majors
           cargo upgrade --workspace --all-features --incompatible || true
-          # Refresh lockfiles to latest available
           cargo update
 
-      # --- Try automated code fixes for edition+API changes ---
       - name: Cargo fix for edition hints
         if: steps.edition.outputs.did_bump == '1'
         run: |
@@ -120,13 +110,11 @@ jobs:
       - name: Clippy auto-fixes
         run: |
           cargo clippy --all-targets --all-features -- -D warnings || true
-          # Try fix mode (unstable options guarded by toolchain; ignore failure)
           cargo clippy --fix -Z unstable-options --allow-dirty --allow-staged --all-targets --all-features -- -D warnings || true
 
       - name: Format
         run: cargo fmt --all
 
-      # --- Build & test after upgrades/fixes ---
       - name: Build
         id: build
         run: |
@@ -141,7 +129,6 @@ jobs:
           cargo test --all-features --all-targets | tee test.log
           echo "exit_code=$?" >> $GITHUB_OUTPUT
 
-      # --- Commit user-visible changes (if any) ---
       - name: Commit changes (edition/deps/fixes)
         id: commit1
         run: |
@@ -152,77 +139,76 @@ jobs:
             echo "did_commit=1" >> $GITHUB_OUTPUT
           else
             echo "did_commit=0" >> $GITHUB_OUTPUT
-          fi
 
-      # --- Optional AI pass if tests failed and key is present ---
       - name: Attempt AI patch pass (optional)
-        if: ${{ steps.test.outputs.exit_code != '0' && env.OPENAI_API_KEY != '' }}
+        if: ${{ steps.test.outputs.exit_code != '0' && secrets.OPENAI_API_KEY != '' }}
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
+          mkdir -p .github
+          cat > .github/ai_patch.py << "PY"
+          import os
+          import subprocess
+          import json
+          import re
+          import sys
 
-          cat > .github/ai_patch.py << 'PY'
-import os, subprocess, json, re, sys, pathlib, textwrap, tempfile
-API=os.environ.get("OPENAI_API_KEY","")
-if not API: sys.exit(0)
+          API = os.environ.get("OPENAI_API_KEY", "")
+          if not API:
+              sys.exit(0)
 
-def run(cmd):
-    p=subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    return p.returncode, p.stdout
+          def run(cmd):
+              p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+              return p.returncode, p.stdout
 
-# Gather recent compiler/test errors (truncate to keep prompt bounded)
-logs = []
-for f in ["build.log","test.log"]:
-    if os.path.exists(f):
-        with open(f,"r",errors="ignore") as fh:
-            logs.append(f"==== {f} ====\n"+fh.read()[-8000:])
-context = "\n\n".join(logs)
+          logs = []
+          for f in ["build.log", "test.log"]:
+              if os.path.exists(f):
+                  with open(f, "r", errors="ignore") as fh:
+                      logs.append(f"==== {f} ====\n" + fh.read()[-8000:])
+          context = "\n\n".join(logs)
 
-# Find small, local errors first (missing imports, renamed symbols, simple API changes).
-# Ask the model for unified diff patches only; apply conservatively.
-prompt = f"""
-You are a senior Rust engineer. Given recent Rust toolchain/dependency/edition upgrades,
-suggest minimal source changes so the project compiles and tests pass.
-Return ONLY unified diff(s) with correct file paths rooted at repo root, no prose.
-Prefer imports/renames and edition idioms; avoid sweeping refactors.
-Compiler/test logs:
-{context}
-"""
+          prompt = f"""
+          You are a senior Rust engineer. Given recent Rust toolchain/dependency/edition upgrades,
+          suggest minimal source changes so the project compiles and tests pass.
+          Return ONLY unified diff(s) with correct file paths rooted at repo root, no prose.
+          Prefer imports/renames and edition idioms; avoid sweeping refactors.
+          Compiler/test logs:
+          {context}
+          """
 
-import urllib.request, json
-req = urllib.request.Request(
-    "https://api.openai.com/v1/responses",
-    headers={"Authorization": f"Bearer {API}", "Content-Type":"application/json"},
-    data=json.dumps({
-        "model":"o3-mini",
-        "input":[{"role":"user","content":prompt}],
-        "max_output_tokens": 3000,
-    }).encode("utf-8")
-)
-try:
-    with urllib.request.urlopen(req, timeout=120) as r:
-        data=json.loads(r.read().decode("utf-8"))
-        out=data.get("output_text","")
-except Exception as e:
-    print("AI call failed:",e)
-    sys.exit(0)
+          import urllib.request
+          req = urllib.request.Request(
+              "https://api.openai.com/v1/responses",
+              headers={"Authorization": f"Bearer {API}", "Content-Type":"application/json"},
+              data=json.dumps({
+                  "model": "gpt-5-mini",
+                  "input": [{"role": "user","content": prompt}],
+                  "max_output_tokens": 3000
+              }).encode("utf-8")
+          )
 
-# Extract unified diffs
-diff = out if out.startswith("--- ") or "\n--- " in out else ""
-if not diff:
-    # try to find code fences
-    m=re.search(r"```diff\\s*(.*?)```", out, re.S)
-    if m: diff=m.group(1)
-if not diff:
-    sys.exit(0)
+          try:
+              with urllib.request.urlopen(req, timeout=120) as r:
+                  data = json.loads(r.read().decode("utf-8"))
+                  out = data.get("output_text", "")
+          except Exception as e:
+              print("AI call failed:", e)
+              sys.exit(0)
 
-patch_file=".github/ai.patch"
-with open(patch_file,"w") as fh: fh.write(diff)
-rc, out = run(["git","apply","--index","--reject",patch_file])
-print(out)
-sys.exit(0)
-PY
+          diff = out if out.startswith("--- ") or "\n--- " in out else ""
+          if not diff:
+              m = re.search(r"```diff\s*(.*?)```", out, re.S)
+              if m: diff = m.group(1)
+          if not diff: sys.exit(0)
+
+          patch_file = ".github/ai.patch"
+          with open(patch_file, "w") as fh: fh.write(diff)
+          rc, out = run(["git","apply","--index","--reject",patch_file])
+          print(out)
+          sys.exit(0)
+          PY
 
           python3 .github/ai_patch.py || true
 
@@ -234,7 +220,6 @@ PY
             echo "did_commit=1" >> $GITHUB_OUTPUT
           else
             echo "did_commit=0" >> $GITHUB_OUTPUT
-          fi
 
       - name: Re-build & test after AI pass
         if: steps.commit_ai.outputs.did_commit == '1'
@@ -242,9 +227,8 @@ PY
         continue-on-error: true
         run: |
           cargo build --all-features | tee build2.log
-          cargo test  --all-features --all-targets | tee test2.log
+          cargo test --all-features --all-targets | tee test2.log
 
-      # --- Open PR(s) ---
       - name: Create PR for updates/fixes
         if: steps.commit1.outputs.did_commit == '1' || steps.commit_ai.outputs.did_commit == '1'
         uses: peter-evans/create-pull-request@v7.0.8
@@ -257,21 +241,9 @@ PY
             - Bumps `edition = "2024"` where older
             - Applies `cargo fix`, Clippy `--fix`, and `rustfmt`
             - (Optional) Includes AI-assisted minimal patches if tests initially failed
-          branch: ${{ github.ref_name }} # use the chore/auto-update-YYYYMMDD branch we created
+          branch: ${{ github.ref_name }}
           commit-message: "chore: auto-update Rust/toolchain, deps, edition, and fixes"
           signoff: false
           delete-branch: false
           draft: false
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      # Optional: create a second PR solely for AI changes, if you want to separate them
-      - name: Split AI changes to a separate PR (optional)
-        if: steps.commit_ai.outputs.did_commit == '1'
-        run: |
-          # Already included together above. Uncomment below to split:
-          # git checkout -b chore/ai-fixes-$(date -u +%Y%m%d)
-          # git reset --hard HEAD~1
-          # git cherry-pick -n HEAD@{1}
-          # git commit -m "chore: AI-assisted compatibility tweaks"
-          # gh pr create --title "chore: AI-assisted compatibility tweaks" --body "Automated minimal patches after upgrades."
-          true
