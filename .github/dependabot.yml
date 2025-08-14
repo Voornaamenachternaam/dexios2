@@ -10,23 +10,3 @@ updates:
     schedule:
       interval: "daily"
     open-pull-requests-limit: 20
-
-  - package-ecosystem: "cargo"
-    directory: "/dexios-core"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "cargo"
-    directory: "/dexios-domain"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "cargo"
-    directory: "/dexios-gui"
-    schedule:
-      interval: "daily"
-
-  - package-ecosystem: "cargo"
-    directory: "/dexios"
-    schedule:
-      interval: "daily"
